@@ -13,7 +13,8 @@ PROMPTS = ROOT / "prompts"
 
 @pytest.fixture(scope="session", autouse=True)
 def samples():
-    if not (SAMPLES / "sample_invoice.pdf").exists() or not (PROMPTS / "invoice_summary.pdf").exists():
+    needed = [SAMPLES / "sample_invoice.pdf", SAMPLES / "contract_renewal_form.pdf", PROMPTS / "invoice_summary.pdf"]
+    if not all(p.exists() for p in needed):
         import runpy
 
         runpy.run_path(str(ROOT / "scripts" / "make_samples.py"), run_name="__main__")
@@ -40,6 +41,8 @@ class FakeOllama:
             body = json.loads(request.content)
             self.chat_calls.append(body)
             data = self.responses.pop(0) if self.responses else {}
+            if callable(data):  # compute the reply from the request
+                data = data(body)
             return httpx.Response(200, json={"message": {"role": "assistant", "content": json.dumps(data)}})
         return httpx.Response(404)
 

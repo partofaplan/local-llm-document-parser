@@ -1,4 +1,4 @@
-"""HTTP API: parse PDFs, extract structured data with prompt files, fill PDF forms."""
+"""HTTP API: a guided form-filling chat with contract memory, plus parse / extract / fill endpoints."""
 
 from __future__ import annotations
 
@@ -6,19 +6,23 @@ import asyncio
 import base64
 import logging
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel
 
 from . import __version__
+from .chat import FormChat, Session
 from .config import Settings, get_settings
 from .extractor import ExtractionResult, extract
 from .filler import FillError, fill_pdf, form_fields
 from .llm import LLMError, OllamaClient
 from .pdf_parser import ParsedDocument, PDFParseError, parse_pdf
 from .prompts import PromptNotFound, PromptRegistry, PromptSpec
+from .store import Store
 
 log = logging.getLogger("docparser")
 STATIC = Path(__file__).parent / "static"
@@ -37,6 +41,17 @@ class State:
         self.jobs = asyncio.Semaphore(settings.max_concurrent_jobs)
         self.pull_error: str | None = None
         self.pull_task: asyncio.Task | None = None
+        self.store = Store(settings.data_dir / "docparser.db")
+        self.store.purge_sessions(timedelta(hours=settings.session_ttl_hours))
+        self.chat = FormChat(settings, client, self.store, self.registry, self.jobs)
+
+
+class ChatMessage(BaseModel):
+    text: str
+
+
+class ContractFacts(BaseModel):
+    facts: dict[str, str]
 
 
 async def ensure_models(state: State) -> None:
@@ -74,6 +89,7 @@ def create_app(settings: Settings | None = None, client: OllamaClient | None = N
         if state.pull_task:
             state.pull_task.cancel()
         await state.client.aclose()
+        state.store.close()
 
     app = FastAPI(title="Local LLM Document Parser", version=__version__, lifespan=lifespan)
 
@@ -127,6 +143,10 @@ def create_app(settings: Settings | None = None, client: OllamaClient | None = N
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/tools", include_in_schema=False)
+    async def tools() -> FileResponse:
+        return FileResponse(STATIC / "tools.html")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -220,6 +240,97 @@ def create_app(settings: Settings | None = None, client: OllamaClient | None = N
             return {"filename": template.filename, "fields": form_fields(data)}
         except FillError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    # Guided form-filling chat ---------------------------------------------------------------------
+
+    def get_session(state: State, session_id: str) -> tuple[Session, bytes]:
+        found = state.chat.load(session_id)
+        if found is None:
+            raise HTTPException(404, "Chat session not found or expired; upload the form again")
+        return found
+
+    @app.post("/api/chat")
+    async def chat_start(request: Request, template: Annotated[UploadFile, File(description="Fillable PDF")]) -> dict[str, Any]:
+        state = st(request)
+        data = await read_pdf(template, state.settings.max_upload_mb)
+        try:
+            session = await state.chat.start(template.filename or "form.pdf", data)
+        except FillError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return state.chat.public(session)
+
+    @app.get("/api/chat/{session_id}")
+    async def chat_get(request: Request, session_id: str) -> dict[str, Any]:
+        state = st(request)
+        return state.chat.public(get_session(state, session_id)[0])
+
+    @app.post("/api/chat/{session_id}/message")
+    async def chat_message(request: Request, session_id: str, body: ChatMessage) -> dict[str, Any]:
+        state = st(request)
+        session, _ = get_session(state, session_id)
+        return state.chat.public(await state.chat.reply(session, body.text))
+
+    @app.post("/api/chat/{session_id}/document")
+    async def chat_document(request: Request, session_id: str, file: Annotated[UploadFile, File()]) -> dict[str, Any]:
+        """Attach a contract (or similar) PDF; its details are remembered and used to pre-fill the form."""
+        state = st(request)
+        session, _ = get_session(state, session_id)
+        data = await read_pdf(file, state.settings.max_upload_mb)
+        try:
+            session = await state.chat.learn_document(session, file.filename or "document.pdf", data)
+        except PDFParseError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except PromptNotFound:
+            raise HTTPException(500, f"Prompt '{state.settings.contract_prompt}' not found") from None
+        except LLMError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return state.chat.public(session)
+
+    @app.get("/api/chat/{session_id}/pdf")
+    async def chat_pdf(request: Request, session_id: str) -> Response:
+        state = st(request)
+        session, template = get_session(state, session_id)
+        try:
+            pdf = state.chat.fill(session, template)
+        except FillError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        stem = Path(session.filename).stem
+        return Response(pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{stem}-filled.pdf"'})
+
+    # Contract memory ------------------------------------------------------------------------------
+
+    @app.get("/api/contracts")
+    async def contracts(request: Request) -> dict[str, Any]:
+        return {"contracts": st(request).store.list_contracts()}
+
+    @app.get("/api/contracts/{number}")
+    async def contract_get(request: Request, number: str) -> dict[str, Any]:
+        contract = st(request).store.get_contract(number)
+        if contract is None:
+            raise HTTPException(404, f"Unknown contract '{number}'")
+        return contract
+
+    @app.put("/api/contracts/{number}")
+    async def contract_put(request: Request, number: str, body: ContractFacts) -> dict[str, Any]:
+        """Create a contract or merge facts into it, e.g. {"facts": {"renewal_date": "2027-03-01"}}."""
+        try:
+            return st(request).store.remember(number, body.facts)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.delete("/api/contracts/{number}/facts/{fact}")
+    async def contract_forget(request: Request, number: str, fact: str) -> dict[str, Any]:
+        contract = st(request).store.forget_fact(number, fact)
+        if contract is None:
+            raise HTTPException(404, f"Unknown contract '{number}'")
+        return contract
+
+    @app.delete("/api/contracts/{number}", status_code=204)
+    async def contract_delete(request: Request, number: str) -> Response:
+        if not st(request).store.delete_contract(number):
+            raise HTTPException(404, f"Unknown contract '{number}'")
+        return Response(status_code=204)
 
     return app
 

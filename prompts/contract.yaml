@@ -4,6 +4,8 @@ instructions: |
   The document is a legal contract or agreement. Identify who the parties are, the key dates,
   and the most important terms. Keep summaries short and factual.
 fields:
+  - name: contract_number
+    description: Contract, agreement or reference number, if one is stated
   - name: title
     description: Title or type of agreement, e.g. "Master Services Agreement"
   - name: parties
@@ -22,8 +24,17 @@ fields:
   - name: governing_law
     description: Jurisdiction whose law governs the contract
   - name: payment_terms
+  - name: renewal_date
+    type: date
+    description: End date of the current term, exactly as stated; the contract renews or expires on this date. Do not add renewal periods to it.
   - name: auto_renews
     type: boolean
+  - name: renewal_notice_days
+    type: integer
+    description: Days of notice required to cancel or not renew
+  - name: contract_value
+    type: number
+    description: Total contract value, if stated
   - name: key_obligations
     type: array
     description: One sentence per significant obligation

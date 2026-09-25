@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+import pdfplumber
 from pypdf import PdfReader, PdfWriter
 
 _PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
@@ -62,6 +63,13 @@ def _load(template: bytes | Path) -> PdfReader:
         raise FillError(f"Unable to read template PDF: {exc}") from exc
 
 
+def _options(opt: Any) -> list[str] | None:
+    """Display values of a choice field's /Opt array (entries are strings or [export, display] pairs)."""
+    if not opt:
+        return None
+    return [str(o[-1]) if isinstance(o, list) else str(o) for o in opt]
+
+
 def form_fields(template: bytes | Path) -> dict[str, dict[str, Any]]:
     reader = _load(template)
     fields = reader.get_fields() or {}
@@ -74,13 +82,67 @@ def form_fields(template: bytes | Path) -> dict[str, dict[str, Any]]:
             "type": {"/Tx": "text", "/Btn": "button", "/Ch": "choice", "/Sig": "signature"}.get(f.get("/FT"), str(f.get("/FT"))),
             "value": str(f.get("/V")) if f.get("/V") is not None else None,
             "states": [str(s) for s in states] if states else None,
+            "label": str(f["/TU"]) if f.get("/TU") else None,  # tooltip / alternate name set by the form author
+            "options": _options(f.get("/Opt")),
         }
     return out
 
 
+def field_labels(template: bytes | Path) -> dict[str, str]:
+    """Guess each field's printed label: the words just left of the widget on the same line, else just above it."""
+    reader = _load(template)
+    buf = io.BytesIO(template) if isinstance(template, bytes) else str(template)
+    labels: dict[str, str] = {}
+    try:
+        pdf = pdfplumber.open(buf)
+    except Exception:
+        return labels
+    with pdf:
+        for page, plumber_page in zip(reader.pages, pdf.pages):
+            widgets = []
+            for ref in page.get("/Annots") or []:
+                widget = ref.get_object()
+                if widget.get("/Subtype") != "/Widget" or "/Rect" not in widget:
+                    continue
+                field = widget if "/T" in widget else widget.get("/Parent", {}).get_object()
+                if "/T" in field:
+                    widgets.append((_qualified_name(field), [float(v) for v in widget["/Rect"]]))
+            if not widgets:
+                continue
+            words = plumber_page.extract_words()
+            height = float(plumber_page.height)
+            for name, (x0, y0, x1, y1) in widgets:
+                if name in labels:
+                    continue
+                top, bottom = height - max(y0, y1), height - min(y0, y1)  # to pdfplumber's top-left origin
+                left = [w for w in words if w["x1"] <= min(x0, x1) + 2 and w["x0"] >= min(x0, x1) - 250
+                        and w["bottom"] > top and w["top"] < bottom]
+                if not left:
+                    left = [w for w in words if 0 <= top - w["bottom"] <= 16 and w["x0"] < max(x0, x1)
+                            and w["x1"] > min(x0, x1) - 10]
+                if left:
+                    left.sort(key=lambda w: (round(w["top"]), w["x0"]))
+                    labels[name] = " ".join(w["text"] for w in left).strip(" :")
+    return labels
+
+
+def _qualified_name(field: Any) -> str:
+    """Full dotted field name, matching the keys pypdf's get_fields() returns for nested fields."""
+    parts = []
+    while field is not None and "/T" in field:
+        parts.append(str(field["/T"]))
+        parent = field.get("/Parent")
+        field = parent.get_object() if parent is not None else None
+    return ".".join(reversed(parts))
+
+
 def _checkbox_value(field: dict[str, Any], value: Any) -> str:
     on_states = [s for s in (field.get("states") or []) if s != "/Off"]
-    truthy = value if isinstance(value, bool) else str(value).strip().lower() in {"yes", "true", "y", "1", "x", "on"}
+    text = str(value).strip()
+    for state in on_states:  # radio groups: the value names the option to select
+        if text.lower() == state.lstrip("/").lower():
+            return state
+    truthy = value if isinstance(value, bool) else text.lower() in {"yes", "true", "y", "1", "x", "on"}
     return (on_states[0] if on_states else "/Yes") if truthy else "/Off"
 
 
@@ -96,17 +158,30 @@ def fill_pdf(template: bytes | Path, data: dict[str, Any], field_map: dict[str, 
         if name not in field_map and _norm(name) in by_norm:
             field_map[name] = by_norm[_norm(name)]
 
-    values: dict[str, str] = {}
+    values: dict[str, Any] = {}
     for pdf_field, mapping in field_map.items():
         if pdf_field not in fields:
             raise FillError(f"field_map references unknown form field '{pdf_field}'")
-        value = render(mapping, data)
+        values[pdf_field] = render(mapping, data)
+    return write_form(template, values, fields)
+
+
+def write_form(
+    template: bytes | Path, values: dict[str, Any], fields: dict[str, dict[str, Any]] | None = None
+) -> tuple[bytes, dict[str, str]]:
+    """Write values keyed by exact form field name. Return (filled PDF bytes, {form field: value written})."""
+    fields = fields if fields is not None else form_fields(template)
+    written: dict[str, str] = {}
+    for pdf_field, value in values.items():
+        if pdf_field not in fields:
+            raise FillError(f"unknown form field '{pdf_field}'")
         if fields[pdf_field]["type"] == "button":
-            values[pdf_field] = _checkbox_value(fields[pdf_field], value)
+            written[pdf_field] = _checkbox_value(fields[pdf_field], value)
         elif isinstance(value, list):
-            values[pdf_field] = "\n".join(to_text(v) for v in value)  # one list item per line
+            written[pdf_field] = "\n".join(to_text(v) for v in value)  # one list item per line
         else:
-            values[pdf_field] = to_text(value)
+            written[pdf_field] = to_text(value)
+    values = written
 
     writer = PdfWriter(clone_from=_load(template))
     # pypdf does not wrap text when it generates appearances, so wrap multiline fields ourselves.

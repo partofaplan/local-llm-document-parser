@@ -1,3 +1,14 @@
+# Contract memory and chat sessions live in SQLite on this volume, so the API runs as a single replica.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: docparser-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,6 +17,8 @@ metadata:
     app.kubernetes.io/name: docparser-api
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # the data volume is ReadWriteOnce
   selector:
     matchLabels:
       app.kubernetes.io/name: docparser-api
@@ -19,6 +32,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -59,12 +73,17 @@ spec:
             - name: prompts
               mountPath: /app/prompts
               readOnly: true
+            - name: data
+              mountPath: /app/data
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: prompts
           configMap:
             name: docparser-prompts
+        - name: data
+          persistentVolumeClaim:
+            claimName: docparser-data
         - name: tmp
           emptyDir: {}
 ---

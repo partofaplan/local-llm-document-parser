@@ -64,10 +64,12 @@ class OllamaClient:
         user: str,
         schema: dict[str, Any],
         options: dict[str, Any] | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+        """history: earlier {role, content} turns placed between the system prompt and the user message."""
         payload = {
             "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "messages": [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": user}],
             "format": schema,  # Ollama constrains decoding to this JSON schema
             "stream": False,
             "options": options or {},
