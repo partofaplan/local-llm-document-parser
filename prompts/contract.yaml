@@ -1,0 +1,32 @@
+name: contract
+description: Summarise the parties, key dates and obligations of a contract or agreement.
+instructions: |
+  The document is a legal contract or agreement. Identify who the parties are, the key dates,
+  and the most important terms. Keep summaries short and factual.
+fields:
+  - name: title
+    description: Title or type of agreement, e.g. "Master Services Agreement"
+  - name: parties
+    type: array
+    required: true
+    items:
+      type: object
+      fields:
+        - name: name
+        - name: role
+          description: e.g. Client, Contractor, Landlord, Tenant
+  - name: effective_date
+    type: date
+  - name: termination_date
+    type: date
+  - name: governing_law
+    description: Jurisdiction whose law governs the contract
+  - name: payment_terms
+  - name: auto_renews
+    type: boolean
+  - name: key_obligations
+    type: array
+    description: One sentence per significant obligation
+  - name: risk_level
+    enum: [low, medium, high]
+    description: Your assessment of how unusual or one-sided the terms are

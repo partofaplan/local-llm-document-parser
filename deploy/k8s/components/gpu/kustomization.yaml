@@ -1,0 +1,20 @@
+# Schedule Ollama on an NVIDIA GPU node (requires the NVIDIA device plugin / GPU operator)
+# and switch to a larger model.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: {kind: Deployment, name: ollama}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources/limits/nvidia.com~1gpu
+        value: 1
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+configMapGenerator:
+  - name: docparser-config
+    behavior: merge
+    literals:
+      - DOCPARSER_MODEL=qwen2.5:7b
+      - DOCPARSER_NUM_CTX=16384

@@ -1,0 +1,16 @@
+# Generic Linux cluster. Set your registry, tag and hostname, then:
+#   kubectl apply -k deploy/k8s/overlays/production
+# Uncomment a component for GPU nodes or for clusters without internet access.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: docparser
+resources:
+  - ../../base
+  - ingress.yaml
+# components:
+#   - ../../components/gpu
+#   - ../../components/airgapped
+images:
+  - name: docparser-api
+    newName: registry.example.com/docparser-api
+    newTag: 0.1.0

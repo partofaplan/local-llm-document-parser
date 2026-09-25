@@ -1,0 +1,25 @@
+# Local k3d "picard" cluster: image imported with `k3d image import`, Traefik ingress on :8080.
+#   make picard-deploy   ->  http://docparser.localhost:8080
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: docparser
+resources:
+  - ../../base
+  - ingress.yaml
+images:
+  - name: docparser-api
+    newTag: dev
+patches:
+  # The picard Docker VM has ~7.6 GiB shared by all nodes; size Ollama to fit a 3B model.
+  - target: {kind: Deployment, name: ollama}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: "1", memory: 2560Mi}
+          limits: {memory: 4608Mi}
+  - target: {kind: PersistentVolumeClaim, name: ollama-models}
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi

@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+# Ollama with a model baked in, for air-gapped clusters (no model download at runtime).
+#   docker buildx build -f Dockerfile.ollama --build-arg MODEL=qwen2.5:3b \
+#     --platform linux/amd64,linux/arm64 -t <registry>/docparser-ollama:qwen2.5-3b --push .
+ARG OLLAMA_VERSION=0.34.0
+FROM ollama/ollama:${OLLAMA_VERSION} AS pull
+ARG MODEL=qwen2.5:3b
+ENV OLLAMA_MODELS=/opt/ollama-models
+RUN ollama serve >/tmp/ollama.log 2>&1 & \
+    for i in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 1; done; \
+    ollama pull "${MODEL}"
+
+FROM ollama/ollama:${OLLAMA_VERSION}
+ENV OLLAMA_MODELS=/opt/ollama-models
+COPY --from=pull --chown=1000:1000 /opt/ollama-models /opt/ollama-models

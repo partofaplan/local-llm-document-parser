@@ -1,0 +1,29 @@
+# Clusters without internet access: use an Ollama image with the model baked in
+# (see Dockerfile.ollama) and never pull at runtime. The model PVC is dropped.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+images:
+  - name: ollama/ollama
+    newName: registry.example.com/docparser-ollama
+    newTag: qwen2.5-3b
+patches:
+  - target: {kind: Deployment, name: ollama}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value: {name: models, emptyDir: {}}
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: /opt/ollama-models
+  - target: {kind: PersistentVolumeClaim, name: ollama-models}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: ollama-models
+configMapGenerator:
+  - name: docparser-config
+    behavior: merge
+    literals:
+      - DOCPARSER_AUTO_PULL=false

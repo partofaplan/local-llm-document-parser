@@ -1,0 +1,64 @@
+# Extracts key invoice data and fills the invoice_summary.pdf form.
+name: invoice
+description: Extract vendor, customer, totals and line items from an invoice and fill the summary form.
+instructions: |
+  The document is an invoice or bill. Extract the invoice details below.
+  "total_amount" is the final amount due including tax. If only one amount is shown, use it as the total.
+fields:
+  - name: invoice_number
+    required: true
+    description: Invoice or bill number
+  - name: invoice_date
+    type: date
+    description: Date the invoice was issued
+  - name: due_date
+    type: date
+  - name: vendor
+    type: object
+    description: The company issuing the invoice
+    fields:
+      - name: name
+      - name: address
+      - name: email
+  - name: customer
+    type: object
+    description: The party being billed
+    fields:
+      - name: name
+      - name: address
+  - name: currency
+    description: ISO 4217 currency code, e.g. USD
+  - name: subtotal
+    type: number
+  - name: tax
+    type: number
+  - name: total_amount
+    type: number
+    required: true
+  - name: paid
+    type: boolean
+    description: true only if the invoice states it has been paid
+  - name: line_items
+    type: array
+    items:
+      type: object
+      fields:
+        - name: description
+        - name: quantity
+          type: number
+        - name: unit_price
+          type: number
+        - name: amount
+          type: number
+
+output_pdf:
+  template: invoice_summary.pdf
+  # PDF form field -> dotted path or "{placeholder}" template. Form fields whose names
+  # match a top-level result key (ignoring case/punctuation) are filled automatically.
+  field_map:
+    VendorName: vendor.name
+    VendorAddress: vendor.address
+    CustomerName: customer.name
+    Total: "{total_amount} {currency}"
+    Paid: paid
+    LineItems: line_items

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Parser</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#5b6470; --line:#dde1e6; --accent:#2f5bd3; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1a1e24; --fg:#e7eaee; --muted:#9aa4b0; --line:#2c323a; --accent:#7ea2ff; --err:#ff8a80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:960px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-top:16px; }
+  label { display:block; font-weight:600; font-size:13px; margin:12px 0 4px; }
+  select, input[type=file] { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  button { padding:8px 14px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.5; cursor:wait; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:12px; overflow:auto; max-height:60vh; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+  .err { color:var(--err); }
+  #status { margin-top:12px; min-height:1.5em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Local LLM Document Parser</h1>
+  <div class="muted" id="ready">Checking model…</div>
+
+  <div class="card">
+    <label for="file">Source PDF</label>
+    <input id="file" type="file" accept="application/pdf">
+    <label for="prompt">Prompt file</label>
+    <select id="prompt"></select>
+    <div class="muted" id="promptDesc"></div>
+    <label for="template">Fillable PDF template (optional, overrides the prompt's template)</label>
+    <input id="template" type="file" accept="application/pdf">
+    <div class="row">
+      <button data-act="extract">Extract JSON</button>
+      <button data-act="fill">Fill PDF</button>
+      <button data-act="parse" class="secondary">Show parsed text</button>
+    </div>
+    <div id="status" class="muted"></div>
+  </div>
+
+  <div class="card"><pre id="out">Results appear here.</pre></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let prompts = [];
+
+async function refreshReady() {
+  try {
+    const r = await (await fetch("readyz")).json();
+    $("ready").textContent = r.ready ? `Model ${r.model} ready` : `Model not ready: ${r.detail}`;
+    if (!r.ready) setTimeout(refreshReady, 5000);
+  } catch { $("ready").textContent = "API unreachable"; }
+}
+
+async function loadPrompts() {
+  const r = await (await fetch("api/prompts")).json();
+  prompts = r.prompts;
+  $("prompt").innerHTML = prompts.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.fills_pdf ? " (fills PDF)" : ""}</option>`).join("");
+  showDesc();
+  if (Object.keys(r.errors).length) $("promptDesc").innerHTML += `<div class="err">Invalid prompt files: ${esc(Object.keys(r.errors).join(", "))}</div>`;
+}
+function showDesc() {
+  const p = prompts.find(p => p.name === $("prompt").value);
+  $("promptDesc").textContent = p ? `${p.description} Fields: ${p.fields.join(", ")}` : "";
+}
+$("prompt").addEventListener("change", showDesc);
+
+async function run(act) {
+  const file = $("file").files[0];
+  if (!file) { $("status").innerHTML = '<span class="err">Choose a PDF first.</span>'; return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  if (act !== "parse") fd.append("prompt", $("prompt").value);
+  if (act === "fill" && $("template").files[0]) fd.append("template", $("template").files[0]);
+  const url = act === "fill" ? "api/fill?format=json" : `api/${act}`;
+  document.querySelectorAll("button").forEach(b => b.disabled = true);
+  const t0 = performance.now();
+  $("status").textContent = act === "parse" ? "Parsing…" : "Running the model; this can take a minute on CPU…";
+  try {
+    const resp = await fetch(url, { method: "POST", body: fd });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.detail || resp.statusText);
+    if (act === "parse") { $("out").textContent = body.text; }
+    else {
+      if (act === "fill") {
+        const blob = new Blob([Uint8Array.from(atob(body.pdf_base64), c => c.charCodeAt(0))], { type: "application/pdf" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${file.name.replace(/\.pdf$/i, "")}-${body.prompt}-filled.pdf`;
+        a.click();
+        delete body.pdf_base64;
+      }
+      $("out").textContent = JSON.stringify(body, null, 2);
+    }
+    $("status").textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s` + (act === "fill" ? " (filled PDF downloaded)" : "");
+  } catch (e) {
+    $("status").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  } finally { document.querySelectorAll("button").forEach(b => b.disabled = false); }
+}
+document.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", () => run(b.dataset.act)));
+refreshReady(); loadPrompts();
+</script>
+</body>
+</html>

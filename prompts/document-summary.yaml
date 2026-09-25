@@ -1,0 +1,20 @@
+name: document-summary
+description: General-purpose summary for any document.
+instructions: Read the document and summarise it.
+fields:
+  - name: title
+  - name: document_type
+    description: e.g. report, letter, invoice, form, manual
+  - name: date
+    type: date
+  - name: author
+  - name: summary
+    required: true
+    description: 3-5 sentence summary
+  - name: key_points
+    type: array
+  - name: people
+    type: array
+    description: Names of people mentioned
+  - name: organizations
+    type: array

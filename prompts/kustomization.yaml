@@ -1,0 +1,11 @@
+# Packages this directory as the docparser-prompts ConfigMap (used by deploy/k8s/base).
+# Add new prompt files / PDF templates to the list below.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: docparser-prompts
+    files:
+      - invoice.yaml
+      - contract.yaml
+      - document-summary.yaml
+      - invoice_summary.pdf

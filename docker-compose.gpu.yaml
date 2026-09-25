@@ -1,0 +1,10 @@
+# NVIDIA GPU override; requires nvidia-container-toolkit on the host.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
+  api:
+    environment:
+      DOCPARSER_MODEL: ${DOCPARSER_MODEL:-qwen2.5:7b}

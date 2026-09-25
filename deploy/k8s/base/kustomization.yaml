@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: docparser
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: docparser
+resources:
+  - namespace.yaml
+  - ollama.yaml
+  - api.yaml
+  - networkpolicy.yaml
+components:
+  - ../../../prompts
+configMapGenerator:
+  - name: docparser-config
+    literals:
+      - DOCPARSER_OLLAMA_URL=http://ollama:11434
+      - DOCPARSER_MODEL=qwen2.5:3b
+      - DOCPARSER_AUTO_PULL=true
+      - DOCPARSER_PROMPTS_DIR=/app/prompts
+      - DOCPARSER_NUM_CTX=8192
+      - DOCPARSER_MAX_CONCURRENT_JOBS=2
+      - DOCPARSER_OCR_ENABLED=true
+      - DOCPARSER_LOG_LEVEL=INFO
+images:
+  - name: docparser-api
+    newTag: 0.1.0
