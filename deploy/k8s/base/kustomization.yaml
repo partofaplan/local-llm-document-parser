@@ -18,6 +18,7 @@ configMapGenerator:
       - DOCPARSER_MODEL=qwen2.5:3b
       - DOCPARSER_AUTO_PULL=true
       - DOCPARSER_PROMPTS_DIR=/app/prompts
+      - DOCPARSER_DATA_DIR=/app/data
       - DOCPARSER_NUM_CTX=8192
       - DOCPARSER_MAX_CONCURRENT_JOBS=2
       - DOCPARSER_OCR_ENABLED=true

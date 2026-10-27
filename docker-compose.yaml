@@ -21,8 +21,10 @@ services:
       DOCPARSER_MODEL: ${DOCPARSER_MODEL:-qwen2.5:3b}
     volumes:
       - ./prompts:/app/prompts:ro
+      - docparser-data:/app/data  # contract memory and chat sessions
     depends_on: [ollama]
     restart: unless-stopped
 
 volumes:
   ollama-models:
+  docparser-data:

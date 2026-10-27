@@ -1,4 +1,4 @@
-"""Generate the invoice form template and sample PDFs (requires reportlab + Pillow: pip install -r requirements-dev.txt).
+"""Generate the form templates and sample PDFs (requires reportlab + Pillow: pip install -r requirements-dev.txt).
 
     python scripts/make_samples.py
 """
@@ -105,7 +105,7 @@ def invoice_pdf(path: Path) -> None:
     c.save()
 
 
-CONTRACT = """MASTER SERVICES AGREEMENT
+CONTRACT = """MASTER SERVICES AGREEMENT                                                    Agreement No. NW-2026-014
 This Master Services Agreement ("Agreement") is entered into as of March 1, 2026 (the "Effective Date")
 between Northwind Analytics Corp., a Delaware corporation ("Client"), and Blue Harbor Consulting LLC ("Contractor").
 1. Services. Contractor shall provide data engineering services as described in each Statement of Work.
@@ -125,6 +125,42 @@ def contract_pdf(path: Path) -> None:
         c.setFont("Helvetica-Bold" if i == 0 else "Helvetica", 9)
         c.drawString(50, y, line)
         y -= 18
+    c.save()
+
+
+def contract_renewal_form(path: Path) -> None:
+    """A fillable form for the guided chat. Field names are deliberately terse; labels are printed beside them."""
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.setTitle("Contract Renewal Request")
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(72, H - 72, "Contract Renewal Request")
+    form = c.acroForm
+    rows = [
+        ("ContractNo", "Contract number"),
+        ("Vendor", "Contractor name"),
+        ("Client", "Client name"),
+        ("RenewalDate", "Renewal date"),
+        ("NoticeDays", "Notice period (days)"),
+        ("Value", "Contract value (USD)"),
+        ("RequestedBy", "Requested by"),
+        ("Date", "Date"),
+    ]
+    y = H - 120
+    for name, label in rows:
+        c.setFont("Helvetica", 11)
+        c.drawString(72, y + 6, label)
+        form.textfield(name=name, x=220, y=y, width=320, height=20, borderColor=black, fontSize=10, maxlen=200)
+        y -= 32
+    c.drawString(72, y + 6, "Renew automatically")
+    form.checkbox(name="AutoRenew", x=220, y=y, size=16, buttonStyle="check", borderColor=black)
+    y -= 32
+    c.drawString(72, y + 6, "Renewal term")
+    form.choice(name="Term", options=["1 year", "2 years", "3 years"], value="1 year",
+                x=220, y=y, width=120, height=20, borderColor=black, fontSize=10)
+    y -= 40
+    c.drawString(72, y + 6, "Comments")
+    form.textfield(name="Comments", tooltip="Comments", x=220, y=y - 60, width=320, height=80, borderColor=black,
+                   fontSize=9, fieldFlags="multiline", maxlen=2000)
     c.save()
 
 
@@ -163,5 +199,6 @@ if __name__ == "__main__":
     invoice_template(ROOT / "prompts" / "invoice_summary.pdf")
     invoice_pdf(ROOT / "samples" / "sample_invoice.pdf")
     contract_pdf(ROOT / "samples" / "sample_contract.pdf")
+    contract_renewal_form(ROOT / "samples" / "contract_renewal_form.pdf")
     scanned_pdf(ROOT / "samples" / "scanned_memo.pdf")
     print("wrote prompts/invoice_summary.pdf and samples/*.pdf")

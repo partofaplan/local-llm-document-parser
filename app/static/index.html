@@ -3,54 +3,332 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Document Parser</title>
+<title>Form Assistant</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#5b6470; --line:#dde1e6; --accent:#2f5bd3; --err:#b42318; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1a1e24; --fg:#e7eaee; --muted:#9aa4b0; --line:#2c323a; --accent:#7ea2ff; --err:#ff8a80; } }
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#5b6470; --line:#dde1e6; --accent:#2f5bd3; --accent-bg:#e8eefc; --on-accent:#fff; --ok:#1a7f37; --err:#b42318; --warn:#9a6700; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1a1e24; --fg:#e7eaee; --muted:#9aa4b0; --line:#2c323a; --accent:#7ea2ff; --accent-bg:#1f2a44; --on-accent:#0b1020; --ok:#4ac26b; --err:#ff8a80; --warn:#d4a72c; } }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:960px; margin:0 auto; padding:24px 16px; }
-  h1 { font-size:20px; margin:0 0 4px; }
+  a { color:var(--accent); }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; max-width:1180px; margin:0 auto; padding:16px 16px 0; }
+  header h1 { font-size:20px; margin:0; }
+  header .spacer { flex:1; }
   .muted { color:var(--muted); font-size:13px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-top:16px; }
-  label { display:block; font-weight:600; font-size:13px; margin:12px 0 4px; }
-  select, input[type=file] { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
-  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
-  button { padding:8px 14px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; max-width:1180px; margin:0 auto; padding:16px; }
+  @media (max-width: 860px) { .layout { grid-template-columns:minmax(0,1fr); } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; }
+  aside { display:flex; flex-direction:column; gap:16px; min-width:0; }
+  .card h2 { font-size:14px; margin:0 0 8px; }
+  button { padding:8px 14px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:var(--on-accent); font:inherit; font-weight:600; cursor:pointer; }
   button.secondary { background:transparent; color:var(--accent); }
+  button.icon { padding:8px 10px; background:transparent; color:var(--muted); border-color:var(--line); }
+  button.link { border:0; background:none; color:var(--muted); padding:0 4px; font-weight:400; }
   button:disabled { opacity:.5; cursor:wait; }
-  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:12px; overflow:auto; max-height:60vh; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+
+  /* Chat */
+  .chat { display:flex; flex-direction:column; height:calc(100vh - 90px); min-height:420px; padding:0; overflow:hidden; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:85%; padding:10px 14px; border-radius:12px; overflow-wrap:anywhere; }
+  .msg.assistant { background:var(--bg); border:1px solid var(--line); align-self:flex-start; border-bottom-left-radius:4px; }
+  .msg.user { background:var(--accent); color:var(--on-accent); align-self:flex-end; border-bottom-right-radius:4px; white-space:pre-wrap; }
+  .msg p { margin:0 0 6px; } .msg p:last-child { margin:0; }
+  .msg ul { margin:4px 0 6px; padding-left:20px; }
+  .msg .dl { margin-top:10px; }
+  .typing { color:var(--muted); font-style:italic; align-self:flex-start; font-size:13px; }
+  .composer { display:flex; gap:8px; padding:12px; border-top:1px solid var(--line); align-items:flex-end; }
+  .composer textarea { flex:1; resize:none; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; max-height:140px; }
   .err { color:var(--err); }
-  #status { margin-top:12px; min-height:1.5em; }
+
+  /* Start */
+  .drop { margin:auto; width:min(460px, 100%); text-align:center; border:2px dashed var(--line); border-radius:12px; padding:32px 20px; }
+  .drop.over { border-color:var(--accent); background:var(--accent-bg); }
+  .drop h2 { font-size:18px; margin:0 0 6px; }
+
+  /* Sidebar */
+  .progress { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:8px 0 12px; }
+  .progress div { height:100%; background:var(--ok); transition:width .3s; }
+  ul.fields, ul.facts, ul.contracts { list-style:none; margin:0; padding:0; font-size:13px; }
+  ul.fields li { display:grid; grid-template-columns:16px minmax(0,1fr); gap:6px; padding:5px 4px; border-radius:4px; cursor:pointer; }
+  ul.fields li:hover { background:var(--bg); }
+  ul.fields li.current { background:var(--accent-bg); }
+  ul.fields .v { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .st-answered { color:var(--ok); } .st-skipped, .st-pending { color:var(--muted); }
+  ul.facts li { display:flex; gap:6px; padding:3px 0; border-bottom:1px solid var(--line); }
+  ul.facts li:last-child { border:0; }
+  ul.facts .k { color:var(--muted); min-width:40%; }
+  ul.facts .val { flex:1; overflow-wrap:anywhere; }
+  ul.contracts li { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
+  ul.contracts li:last-child { border:0; }
+  .badge { font-size:12px; padding:1px 7px; border-radius:10px; background:var(--bg); border:1px solid var(--line); white-space:nowrap; }
+  .badge.soon { color:var(--warn); border-color:var(--warn); }
+  .badge.past { color:var(--err); border-color:var(--err); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<main>
-  <h1>Local LLM Document Parser</h1>
-  <div class="muted" id="ready">Checking model…</div>
+<header>
+  <h1>Form Assistant</h1>
+  <span class="muted" id="ready">Checking model…</span>
+  <span class="spacer"></span>
+  <a class="muted" href="tools">Extraction tools</a>
+</header>
 
-  <div class="card">
-    <label for="file">Source PDF</label>
-    <input id="file" type="file" accept="application/pdf">
-    <label for="prompt">Prompt file</label>
-    <select id="prompt"></select>
-    <div class="muted" id="promptDesc"></div>
-    <label for="template">Fillable PDF template (optional, overrides the prompt's template)</label>
-    <input id="template" type="file" accept="application/pdf">
-    <div class="row">
-      <button data-act="extract">Extract JSON</button>
-      <button data-act="fill">Fill PDF</button>
-      <button data-act="parse" class="secondary">Show parsed text</button>
+<div class="layout">
+  <section class="card chat">
+    <div id="log">
+      <div class="drop" id="drop">
+        <h2>Fill a PDF form by chatting</h2>
+        <p class="muted">Upload a fillable PDF and I'll ask you about each field in turn. I remember contract details
+          such as the contract number and renewal date, so the next form for the same contract is quicker.</p>
+        <button id="pick">Choose a fillable PDF</button>
+        <p class="muted">or drop it here</p>
+      </div>
     </div>
-    <div id="status" class="muted"></div>
-  </div>
+    <form class="composer" id="composer" hidden>
+      <button type="button" class="icon" id="attach" title="Attach the contract so I can read its details">📎</button>
+      <textarea id="input" rows="1" placeholder="Type your answer…" aria-label="Message"></textarea>
+      <button id="send">Send</button>
+    </form>
+  </section>
 
-  <div class="card"><pre id="out">Results appear here.</pre></div>
-</main>
+  <aside>
+    <div class="card" id="formCard" hidden>
+      <h2 id="formName"></h2>
+      <div class="muted" id="formProgress"></div>
+      <div class="progress"><div id="bar" style="width:0"></div></div>
+      <ul class="fields" id="fields"></ul>
+      <div class="row" style="margin-top:12px">
+        <button id="download">Download PDF</button>
+        <button class="secondary" id="newForm">New form</button>
+      </div>
+    </div>
+    <div class="card" id="contractCard" hidden>
+      <h2 id="contractName"></h2>
+      <ul class="facts" id="facts"></ul>
+    </div>
+    <div class="card">
+      <h2>Saved contracts</h2>
+      <ul class="contracts" id="contracts"><li class="muted">None yet.</li></ul>
+    </div>
+  </aside>
+</div>
+
+<input type="file" id="templateFile" accept="application/pdf" hidden>
+<input type="file" id="docFile" accept="application/pdf" hidden>
+
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let prompts = [];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KEY = "docparser.session";
+const store = {
+  get() { try { return localStorage.getItem(KEY); } catch { return null; } },
+  set(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch {} },
+};
+let session = null, busy = false;
+
+// Minimal, escape-first Markdown: **bold**, _italic_, "- " lists, paragraphs.
+function md(text) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/(^|\W)_(.+?)_(?=\W|$)/g, "$1<em>$2</em>");
+  return text.split(/\n{2,}/).map(block => {
+    const lines = block.split("\n");
+    if (lines.every(l => l.startsWith("- "))) return "<ul>" + lines.map(l => `<li>${inline(l.slice(2))}</li>`).join("") + "</ul>";
+    const firstList = lines.findIndex(l => l.startsWith("- "));
+    if (firstList > 0 && lines.slice(firstList).every(l => l.startsWith("- ")))
+      return `<p>${lines.slice(0, firstList).map(inline).join("<br>")}</p><ul>` + lines.slice(firstList).map(l => `<li>${inline(l.slice(2))}</li>`).join("") + "</ul>";
+    return `<p>${lines.map(inline).join("<br>")}</p>`;
+  }).join("");
+}
+
+function daysUntil(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(iso + "T00:00:00") - today) / 86400000);
+}
+function renewalBadge(iso) {
+  const d = daysUntil(iso);
+  if (d === null) return "";
+  const cls = d < 0 ? "past" : d <= 90 ? "soon" : "";
+  const txt = d < 0 ? `renewed ${-d}d ago` : d === 0 ? "renews today" : `renews in ${d}d`;
+  return `<span class="badge ${cls}" title="Renewal date ${esc(iso)}">${txt}</span>`;
+}
+const factLabel = (k) => k.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+
+async function api(url, opts = {}) {
+  const resp = await fetch(url, opts);
+  const body = resp.status === 204 ? null : await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body?.detail || resp.statusText);
+  return body;
+}
+
+function setBusy(on, note) {
+  busy = on;
+  ["send", "attach", "input", "download"].forEach(id => $(id).disabled = on);
+  const t = document.querySelector(".typing");
+  if (t) t.remove();
+  if (on) {
+    const el = document.createElement("div");
+    el.className = "typing";
+    el.textContent = note || "Thinking…";
+    $("log").appendChild(el);
+    $("log").scrollTop = $("log").scrollHeight;
+  } else { $("input").focus(); }
+}
+
+function render() {
+  const s = session;
+  $("drop").hidden = !!s;
+  $("composer").hidden = !s;
+  $("formCard").hidden = !s;
+  if (!s) { $("contractCard").hidden = true; $("log").querySelectorAll(".msg").forEach(m => m.remove()); return; }
+
+  $("log").querySelectorAll(".msg").forEach(m => m.remove());
+  for (const m of s.messages) {
+    const el = document.createElement("div");
+    el.className = `msg ${m.role}`;
+    if (m.role === "user") el.textContent = m.text;
+    else el.innerHTML = md(m.text);
+    if (m.kind === "download") {
+      const b = document.createElement("button");
+      b.className = "dl"; b.textContent = "Download filled PDF"; b.onclick = download;
+      el.appendChild(b);
+    }
+    $("log").appendChild(el);
+  }
+  $("log").scrollTop = $("log").scrollHeight;
+
+  const done = s.fields.filter(f => f.status !== "pending").length;
+  $("formName").textContent = s.filename;
+  $("formProgress").textContent = `${s.fields.filter(f => f.status === "answered").length} of ${s.fields.length} fields filled`;
+  $("bar").style.width = `${Math.round(100 * done / s.fields.length)}%`;
+  $("fields").innerHTML = s.fields.map(f => {
+    const icon = f.status === "answered" ? "✓" : f.status === "skipped" ? "–" : "○";
+    const val = f.status === "answered" ? f.value : f.status === "skipped" ? "blank" : "";
+    const src = f.source === "memory" ? " · remembered" : f.source === "document" ? " · from document" : "";
+    return `<li class="${f.name === s.current ? "current" : ""}" data-label="${esc(f.label)}" title="Click to change">
+      <span class="st-${f.status}">${icon}</span>
+      <span><div>${esc(f.label)}</div>${val ? `<div class="v">${esc(val)}${esc(src)}</div>` : ""}</span></li>`;
+  }).join("");
+
+  const c = s.contract;
+  $("contractCard").hidden = !c;
+  if (c) {
+    $("contractName").innerHTML = `Contract ${esc(c.number)} ${renewalBadge(c.facts.renewal_date)}`;
+    $("facts").innerHTML = Object.entries(c.facts).map(([k, v]) =>
+      `<li><span class="k">${esc(factLabel(k))}</span><span class="val">${esc(v)}</span>` +
+      (k === "contract_number" ? "" : `<button class="link" data-forget="${esc(k)}" title="Forget this">×</button>`) + "</li>").join("");
+  }
+}
+
+async function loadContracts() {
+  try {
+    const { contracts } = await api("api/contracts");
+    $("contracts").innerHTML = contracts.length ? contracts.map(c => `<li>
+        <span><strong>${esc(c.number)}</strong>${c.facts.title ? `<div class="muted">${esc(c.facts.title)}</div>` : ""}</span>
+        <span>${renewalBadge(c.facts.renewal_date)}<button class="link" data-delete="${esc(c.number)}" title="Delete contract">×</button></span>
+      </li>`).join("") : '<li class="muted">None yet. Contracts you mention while filling forms appear here.</li>';
+  } catch {}
+}
+
+function showError(e) {
+  const el = document.createElement("div");
+  el.className = "msg assistant err";
+  el.textContent = e.message;
+  $("log").appendChild(el);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+async function start(file) {
+  if (!file || busy) return;
+  const fd = new FormData();
+  fd.append("template", file);
+  $("drop").hidden = true;
+  setBusy(true, `Reading ${file.name} and preparing questions… this can take a minute on CPU.`);
+  try {
+    session = await api("api/chat", { method: "POST", body: fd });
+    store.set(session.id);
+  } catch (e) {
+    $("drop").hidden = false;
+    setBusy(false);
+    return showError(e);
+  }
+  setBusy(false);
+  render(); loadContracts();
+}
+
+async function send(text) {
+  text = text.trim();
+  if (!text || busy || !session) return;
+  session.messages.push({ role: "user", text });
+  render();
+  $("input").value = ""; autosize();
+  setBusy(true);
+  try {
+    session = await api(`api/chat/${session.id}/message`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+    });
+    setBusy(false); render(); loadContracts();
+  } catch (e) { session.messages.pop(); setBusy(false); render(); showError(e); }
+}
+
+async function attach(file) {
+  if (!file || busy || !session) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  setBusy(true, `Reading ${file.name}… this can take a minute on CPU.`);
+  try {
+    session = await api(`api/chat/${session.id}/document`, { method: "POST", body: fd });
+    setBusy(false); render(); loadContracts();
+  } catch (e) { setBusy(false); showError(e); }
+}
+
+async function download() {
+  try {
+    const resp = await fetch(`api/chat/${session.id}/pdf`);
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || resp.statusText);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await resp.blob());
+    a.download = session.filename.replace(/\.pdf$/i, "") + "-filled.pdf";
+    a.click();
+  } catch (e) { showError(e); }
+}
+
+function autosize() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 140) + "px"; }
+
+// Wiring
+$("pick").onclick = () => $("templateFile").click();
+$("templateFile").onchange = (e) => { start(e.target.files[0]); e.target.value = ""; };
+$("attach").onclick = () => $("docFile").click();
+$("docFile").onchange = (e) => { attach(e.target.files[0]); e.target.value = ""; };
+$("composer").onsubmit = (e) => { e.preventDefault(); send($("input").value); };
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("input").value); } });
+$("input").addEventListener("input", autosize);
+$("download").onclick = download;
+$("newForm").onclick = () => { session = null; store.set(null); render(); };
+$("fields").onclick = (e) => {
+  const li = e.target.closest("li[data-label]");
+  if (!li || !session) return;
+  $("input").value = `Change ${li.dataset.label} to `;
+  $("input").focus();
+};
+$("facts").onclick = async (e) => {
+  const k = e.target.dataset.forget;
+  if (!k || !session?.contract) return;
+  await api(`api/contracts/${encodeURIComponent(session.contract.number)}/facts/${encodeURIComponent(k)}`, { method: "DELETE" }).catch(showError);
+  session = await api(`api/chat/${session.id}`).catch(() => session);
+  render();
+};
+$("contracts").onclick = async (e) => {
+  const n = e.target.dataset.delete;
+  if (!n || !confirm(`Delete everything remembered about contract ${n}?`)) return;
+  await api(`api/contracts/${encodeURIComponent(n)}`, { method: "DELETE" }).catch(showError);
+  loadContracts();
+  if (session) { session = await api(`api/chat/${session.id}`).catch(() => session); render(); }
+};
+const drop = $("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => start(e.dataTransfer.files[0]));
 
 async function refreshReady() {
   try {
@@ -60,53 +338,14 @@ async function refreshReady() {
   } catch { $("ready").textContent = "API unreachable"; }
 }
 
-async function loadPrompts() {
-  const r = await (await fetch("api/prompts")).json();
-  prompts = r.prompts;
-  $("prompt").innerHTML = prompts.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.fills_pdf ? " (fills PDF)" : ""}</option>`).join("");
-  showDesc();
-  if (Object.keys(r.errors).length) $("promptDesc").innerHTML += `<div class="err">Invalid prompt files: ${esc(Object.keys(r.errors).join(", "))}</div>`;
-}
-function showDesc() {
-  const p = prompts.find(p => p.name === $("prompt").value);
-  $("promptDesc").textContent = p ? `${p.description} Fields: ${p.fields.join(", ")}` : "";
-}
-$("prompt").addEventListener("change", showDesc);
-
-async function run(act) {
-  const file = $("file").files[0];
-  if (!file) { $("status").innerHTML = '<span class="err">Choose a PDF first.</span>'; return; }
-  const fd = new FormData();
-  fd.append("file", file);
-  if (act !== "parse") fd.append("prompt", $("prompt").value);
-  if (act === "fill" && $("template").files[0]) fd.append("template", $("template").files[0]);
-  const url = act === "fill" ? "api/fill?format=json" : `api/${act}`;
-  document.querySelectorAll("button").forEach(b => b.disabled = true);
-  const t0 = performance.now();
-  $("status").textContent = act === "parse" ? "Parsing…" : "Running the model; this can take a minute on CPU…";
-  try {
-    const resp = await fetch(url, { method: "POST", body: fd });
-    const body = await resp.json();
-    if (!resp.ok) throw new Error(body.detail || resp.statusText);
-    if (act === "parse") { $("out").textContent = body.text; }
-    else {
-      if (act === "fill") {
-        const blob = new Blob([Uint8Array.from(atob(body.pdf_base64), c => c.charCodeAt(0))], { type: "application/pdf" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${file.name.replace(/\.pdf$/i, "")}-${body.prompt}-filled.pdf`;
-        a.click();
-        delete body.pdf_base64;
-      }
-      $("out").textContent = JSON.stringify(body, null, 2);
-    }
-    $("status").textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s` + (act === "fill" ? " (filled PDF downloaded)" : "");
-  } catch (e) {
-    $("status").innerHTML = `<span class="err">${esc(e.message)}</span>`;
-  } finally { document.querySelectorAll("button").forEach(b => b.disabled = false); }
-}
-document.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", () => run(b.dataset.act)));
-refreshReady(); loadPrompts();
+(async function init() {
+  refreshReady(); loadContracts();
+  const id = store.get();
+  if (id) {
+    try { session = await api(`api/chat/${id}`); } catch { store.set(null); }
+  }
+  render();
+})();
 </script>
 </body>
 </html>

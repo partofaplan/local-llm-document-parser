@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     chunk_overlap: int = 400
     max_chunks: int = 8
 
+    # Guided form-filling chat
+    data_dir: Path = Path(__file__).resolve().parent.parent / "data"  # SQLite: contract memory + chat sessions
+    contract_prompt: str = "contract"  # prompt file used to read contracts attached in the chat
+    form_date_format: str = "%Y-%m-%d"  # how dates are written into forms, e.g. %m/%d/%Y
+    session_ttl_hours: int = 72
+
     log_level: str = "INFO"
 
 

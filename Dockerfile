@@ -15,6 +15,8 @@ RUN apt-get update \
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app
 WORKDIR /app
+# Contract memory and chat sessions (SQLite). Mount a volume here to keep them across restarts.
+RUN mkdir /app/data && chown 10001:10001 /app/data
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
